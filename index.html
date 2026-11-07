@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f5c3f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="POKERFACE">
+  <!-- Relative paths: the app is served both at "/" and under "/<repo>/" on GitHub Pages. -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/favicon-64.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <title>POKERFACE</title>
+</head>
+<body>
+  <header class="topbar">
+    <a href="#/" class="brand"><img class="logo" src="icons/icon-192.png" alt=""> POKERFACE <span id="live" class="live" title="לא מחובר לעדכונים בזמן אמת"></span></a>
+    <div id="userbox"></div>
+  </header>
+  <main id="app"></main>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
