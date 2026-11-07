@@ -514,6 +514,18 @@ input[type=checkbox] {
 .sheet-head { margin-bottom: 14px; }
 .sheet-section { padding: 14px 0; border-top: 1px solid var(--border); }
 .sheet-net { min-width: 80px; text-align: left; }
+/* count-everyone panel */
+.count-rows { display: grid; }
+.count-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0; border-top: 1px solid var(--border);
+  color: var(--text); font-size: 1rem; font-weight: 400;
+}
+.count-row .name { display: block; font-weight: 700; }
+.count-row.me .avatar { border: 2px solid var(--chip); }
+.count-input { width: 92px; flex: none; margin: 0; padding: 11px 8px; text-align: center; font-weight: 700; }
+.count-net { flex: none; min-width: 64px; text-align: left; font-size: .88rem; }
+
 .add-pick { width: 100%; font: inherit; text-align: start; background: none; border: 0; border-top: 1px solid var(--border); }
 
 /* ---------- in-page confirm / prompt ---------- */

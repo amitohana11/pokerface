@@ -1,7 +1,7 @@
 // Network-first service worker: always tries the network (so new versions show up
 // immediately), and falls back to the cached app shell when offline.
 // Paths are relative so it works both at "/" and under "/<repo>/" on GitHub Pages.
-const CACHE = 'poker-shell-v3';
+const CACHE = 'poker-shell-v4';
 const SHELL = ['./', 'index.html', 'app.js', 'local-api.js', 'styles.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/favicon-64.png'];
 
 self.addEventListener('install', e => {

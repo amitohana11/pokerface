@@ -922,9 +922,30 @@ async function viewSession(tid, sid) {
     $danger.hidden = data.myRole !== 'owner';
     drawLog();
     drawCount();
+    if (pointerInSheet) sheetRenderPending = true; // don't swap buttons under a finger mid-tap
+    else renderSheet();
+  }
+
+  function renderSheet() {
     if (sheetFor === 'add') renderAddSheet();
+    else if (sheetFor === 'count') renderCountSheet();
     else if (sheetFor !== null) player(sheetFor) ? renderPlayerSheet() : closeSheet();
   }
+
+  // Tapping a button right after typing blurs the input, which saves and redraws the panel.
+  // If that redraw replaced the button between press and release, the tap would be lost -
+  // so while a finger/mouse is down in the panel, the redraw waits until it's released.
+  let pointerInSheet = false;
+  let sheetRenderPending = false;
+  $sheetWrap.addEventListener('pointerdown', () => { pointerInSheet = true; });
+  document.addEventListener('pointerup', function onUp() {
+    if (!$sheetWrap.isConnected) return document.removeEventListener('pointerup', onUp);
+    // Runs after this tap's click event has been handled.
+    setTimeout(() => {
+      pointerInSheet = false;
+      if (sheetRenderPending) { sheetRenderPending = false; renderSheet(); }
+    }, 0);
+  });
 
   function drawLog() {
     const { session: s, entries, myMemberId } = data;
@@ -945,18 +966,23 @@ async function viewSession(tid, sid) {
     }).join('') : '<li class="muted small">עוד אין כניסות.</li>';
   }
 
-  // End-of-night counts: saved values, overridden by what's being typed in the open panel.
+  // End-of-night counts: saved values, overridden by whatever is typed in the open panel
+  // (one player's panel, or the "count everyone" panel).
   function liveCount() {
-    const typing = $sheet.querySelector('[data-final]');
+    const typed = new Map([...$sheet.querySelectorAll('[data-final]')].map(i => [Number(i.dataset.final), i.value.trim()]));
     const rows = data.players.map(p => {
-      let final = p.finalChips;
-      if (typing && Number(typing.dataset.final) === p.memberId) {
-        const raw = typing.value.trim();
-        final = raw === '' ? null : Number(raw);
-      }
+      const raw = typed.get(p.memberId);
+      const final = raw === undefined ? p.finalChips : raw === '' ? null : Number(raw);
       return { memberId: p.memberId, name: p.name, chips: p.chips, mustCount: p.mustCount, final };
     });
     return { rows, c: cashoutMath(data.session, rows) };
+  }
+
+  function balanceInfo(c) {
+    const s = data.session;
+    if (c.missing.length) return { cls: 'pending', text: `נספרו ${fmt(c.chipsOut)} מתוך ${fmt(c.chipsIn)} צ'יפים · עוד לא הזינו: ${c.missing.map(esc).join(', ')}` };
+    if (c.balanced) return { cls: 'ok', text: `✓ נספרו ${fmt(c.chipsOut)} מתוך ${fmt(c.chipsIn)} צ'יפים. הסכום מתאזן, אפשר לסיים את הערב.` };
+    return { cls: 'bad', text: `${icon('alert')} אי-התאמה: ${mismatchText(s, c)}. כדאי לספור שוב.` };
   }
 
   function drawCount() {
@@ -967,14 +993,7 @@ async function viewSession(tid, sid) {
     $balance.hidden = !anyCounted;
     if (!anyCounted) return;
     $summary.innerHTML = summaryTiles(s, c);
-    let cls, text;
-    if (c.missing.length) {
-      cls = 'pending'; text = `נספרו ${fmt(c.chipsOut)} מתוך ${fmt(c.chipsIn)} צ'יפים · עוד לא הזינו: ${c.missing.map(esc).join(', ')}`;
-    } else if (c.balanced) {
-      cls = 'ok'; text = `✓ נספרו ${fmt(c.chipsOut)} מתוך ${fmt(c.chipsIn)} צ'יפים. הסכום מתאזן, אפשר לסיים את הערב.`;
-    } else {
-      cls = 'bad'; text = `${icon('alert')} אי-התאמה: ${mismatchText(s, c)}. כדאי לספור שוב.`;
-    }
+    const { cls, text } = balanceInfo(c);
     $balance.className = `balance ${cls}`;
     $balance.innerHTML = text;
   }
@@ -985,7 +1004,9 @@ async function viewSession(tid, sid) {
     sheetFor = what;
     $sheetWrap.hidden = false;
     document.body.classList.add('no-scroll');
-    what === 'add' ? renderAddSheet() : renderPlayerSheet();
+    if (what === 'add') renderAddSheet();
+    else if (what === 'count') renderCountSheet();
+    else renderPlayerSheet();
   }
 
   function closeSheet() {
@@ -1080,6 +1101,78 @@ async function viewSession(tid, sid) {
     drawCount();
   }
 
+  // "Count everyone": one list with every player's end-of-night chips. "Next" on the keyboard
+  // jumps to the next player; totals and the balance check update while typing.
+  function renderCountSheet() {
+    const s = data.session;
+    const focused = $sheet.contains(document.activeElement) && document.activeElement.dataset?.final
+      ? { id: document.activeElement.dataset.final, value: document.activeElement.value } : null;
+    const seats = seatOrder();
+    const editable = seats.filter(p => canActFor(p.memberId));
+    const lastEditable = editable.at(-1)?.memberId;
+
+    $sheet.innerHTML = `
+      <div class="sheet-grip"></div>
+      <div class="row sheet-head">
+        <div class="grow">
+          <b>ספירת צ'יפים, סוף הערב</b>
+          <div class="muted small">הזן כמה צ'יפים נשארו לכל שחקן. "הבא" במקלדת עובר לשחקן הבא.</div>
+        </div>
+        <button class="icon-btn" data-close aria-label="סגור">${icon('x')}</button>
+      </div>
+      <div class="count-rows">${seats.map(p => `
+        <label class="count-row${p.memberId === data.myMemberId ? ' me' : ''}">
+          <span class="avatar">${initial(p.name)}</span>
+          <span class="grow">
+            <span class="name">${esc(p.name)}</span>
+            <span class="meta">נכנס ${fmt(p.chips)} (${money(s, p.money)})</span>
+          </span>
+          <input type="number" min="0" step="any" inputmode="decimal" class="count-input"
+                 data-final="${p.memberId}" value="${p.finalChips ?? ''}" placeholder="${p.mustCount ? "צ'יפים" : '0'}"
+                 enterkeyhint="${p.memberId === lastEditable ? 'done' : 'next'}"
+                 aria-label="כמה צ'יפים נשארו ל${esc(p.name)}" ${canActFor(p.memberId) ? '' : 'disabled'}>
+          <span class="count-net" data-count-net="${p.memberId}"></span>
+        </label>`).join('')}
+      </div>
+      <div class="stats" data-count-summary style="margin-top:14px"></div>
+      <div class="balance" data-count-balance></div>
+      ${isAdmin() ? `<button class="btn primary block big" data-finish>${icon('flag')} סיים ערב</button>` : ''}`;
+
+    if (focused) {
+      const el = $sheet.querySelector(`[data-final="${focused.id}"]`);
+      if (el) { el.value = focused.value; el.focus(); }
+    }
+    updateCountPreviews();
+  }
+
+  function updateCountPreviews() {
+    const s = data.session;
+    const { rows, c } = liveCount();
+    for (const r of rows) {
+      const cell = $sheet.querySelector(`[data-count-net="${r.memberId}"]`);
+      if (cell) cell.innerHTML = r.final === null ? '' : netHtml(s, toMoney(s, r.final - r.chips));
+    }
+    const $s = $sheet.querySelector('[data-count-summary]');
+    const $b = $sheet.querySelector('[data-count-balance]');
+    if ($s) $s.innerHTML = summaryTiles(s, c);
+    if ($b) {
+      const { cls, text } = balanceInfo(c);
+      $b.className = `balance ${cls}`;
+      $b.innerHTML = text;
+    }
+    drawCount();
+  }
+
+  // Save every count in the open panel that differs from what's stored.
+  async function saveTypedCounts() {
+    for (const input of $sheet.querySelectorAll('[data-final]:not(:disabled)')) {
+      const p = player(Number(input.dataset.final));
+      const raw = input.value.trim();
+      const value = raw === '' ? null : Number(raw);
+      if (p && value !== p.finalChips) await saveFinal(input);
+    }
+  }
+
   function renderAddSheet() {
     $sheet.innerHTML = `
       <div class="sheet-grip"></div>
@@ -1150,6 +1243,8 @@ async function viewSession(tid, sid) {
         await api('DELETE', `/tables/${tid}/sessions/${sid}/players/${p.memberId}`);
         closeSheet();
         await load();
+      } else if (btn.hasAttribute('data-finish')) {
+        await endNight();
       } else if (btn.dataset.addp) {
         await api('POST', `/tables/${tid}/sessions/${sid}/players`, { memberId: Number(btn.dataset.addp) });
         toast('השחקן הושב לשולחן', 'ok');
@@ -1164,16 +1259,29 @@ async function viewSession(tid, sid) {
   });
 
   $sheetWrap.addEventListener('input', e => {
-    if (e.target.dataset.final !== undefined || e.target.name === 'custom') updateSheetPreviews();
+    if (sheetFor === 'count') updateCountPreviews();
+    else if (e.target.dataset.final !== undefined || e.target.name === 'custom') updateSheetPreviews();
   });
   $sheetWrap.addEventListener('keydown', e => {
     if (e.key !== 'Enter') return;
+    if (e.target.dataset.final !== undefined && sheetFor === 'count') {
+      // "Next": jump to the next player's box (saving happens on the change event).
+      e.preventDefault();
+      const inputs = [...$sheet.querySelectorAll('[data-final]:not(:disabled)')];
+      const next = inputs[inputs.indexOf(e.target) + 1];
+      if (next) { next.focus(); next.select(); } else e.target.blur();
+      return;
+    }
     if (e.target.dataset.final !== undefined) e.target.blur();
     if (e.target.name === 'custom') $sheet.querySelector('[data-custom]')?.click();
   });
   $sheetWrap.addEventListener('change', async e => {
     if (e.target.dataset.final === undefined) return;
-    try { await saveFinal(e.target); toast('נשמר', 'ok'); await load(); } catch (err) { handleError(err); }
+    try {
+      await saveFinal(e.target);
+      if (sheetFor !== 'count') toast('נשמר', 'ok'); // the count panel shows progress itself
+      await load();
+    } catch (err) { handleError(err); }
   });
   document.addEventListener('keydown', function onEsc(e) {
     if (!$sheetWrap.isConnected) return document.removeEventListener('keydown', onEsc);
@@ -1186,18 +1294,20 @@ async function viewSession(tid, sid) {
     try { await deleteEntry(btn.dataset.del); } catch (err) { handleError(err); }
   });
 
-  // "End night": locks the night and opens the read-only results page.
-  $end.onclick = async () => {
+  // "End night": if someone still has to count, opens the count-everyone panel at the first
+  // missing player; otherwise locks the night and opens the read-only results page.
+  async function endNight() {
     const s = data.session;
-    const typing = $sheet.querySelector('[data-final]');
-    if (typing && document.activeElement === typing) {
-      try { await saveFinal(typing); } catch (err) { handleError(err); return; }
-    }
+    try { await saveTypedCounts(); await load(); } catch (err) { handleError(err); return; }
+    if (!$seats.isConnected || data.session.status !== 'open') return; // closed/deleted meanwhile
     const { c } = liveCount();
     if (c.missing.length) {
-      toast(`צריך קודם להזין כמה צ'יפים נשארו ל: ${c.missing.join(', ')}`, 'error');
-      const first = data.players.find(p => p.name === c.missing[0]);
-      if (first) { openSheet(first.memberId); $sheet.querySelector('[data-final]')?.focus(); }
+      if (sheetFor !== 'count') openSheet('count');
+      else toast(`עוד לא הוזן: ${c.missing.join(', ')}`, 'error');
+      // Start at the first empty box from the top of the list.
+      const firstEmpty = [...$sheet.querySelectorAll('[data-final]:not(:disabled)')]
+        .find(i => i.value.trim() === '' && player(Number(i.dataset.final))?.mustCount);
+      firstEmpty?.focus();
       return;
     }
     const lock = 'אחרי הסיום הערב ננעל ואי אפשר לשנות בו כלום, רק לצפות בפלוסים ובמינוסים.';
@@ -1212,7 +1322,8 @@ async function viewSession(tid, sid) {
       toast('הערב הסתיים', 'ok');
       go(resultsPath);
     } catch (err) { handleError(err); $end.disabled = false; }
-  };
+  }
+  $end.onclick = endNight;
 
   $danger.querySelector('button').onclick = async () => {
     if (!(await askConfirm('למחוק את הערב וכל הכניסות שבו? אי אפשר לבטל.', { ok: 'מחק ערב', danger: true }))) return;
